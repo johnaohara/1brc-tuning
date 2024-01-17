@@ -1,0 +1,15 @@
+states:
+  RUNTIMES: 
+    - name: merykitty
+      authors: 
+        - name: Quan Anh Mai
+          url: https://github.com/merykitty
+      github_url: https://github.com/gunnarmorling/1brc/blob/main/src/main/java/dev/morling/onebrc/CalculateAverage_merykitty.java
+      jdk: 21.0.1-open
+      notes:
+      build_cmds:
+        - ${{DEFULT_BUILD_CMD}}
+      pre_cmds: 
+        - JAVA_OPTS="--enable-preview --add-modules=jdk.incubator.vector -XX:-TieredCompilation -XX:+UseSIMDForMemoryOps -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC -XX:+UseLargePages"
+      timing_cmd: ${{MEASURE_CMD_PREPEND}} java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_merykitty
+      post_cmds: []

@@ -1,0 +1,155 @@
+name: run 1BRC entries
+
+scripts:
+
+  validate-environment:
+    - log: Validating enviroment
+    - for-each: CMD ${{REQUIRED_CMDS}}
+      then:
+      - sh: 
+          command: which ${{CMD}}
+          ignore-exit-code: true
+        then:
+          #zsh
+        - regex: ${{CMD}} not found  
+          then:
+          - abort: Stopping; ${{CMD}} not found
+          #bash
+        - regex: ".*: no ${{CMD}} in .*"  
+          then:
+          - abort: Stopping; ${{CMD}} not found
+
+  configure-jdk:
+    - sh: source "$HOME/.sdkman/bin/sdkman-init.sh"
+    - sh: 
+        command: sdk use java ${{jdk}}
+        ignore-exit-code: true
+      then: 
+      - regex: Candidate version is not installed.
+        then:
+          - log: sdk version not found - installing ${{jdk}}
+          - sh: 
+              command: sdk install java ${{jdk}}
+              prompt:
+                "Do you want java ${{jdk}} to be set as default? (Y/n): ": n
+          - sh: sdk use java ${{jdk}}
+
+  run-cmds:
+      - for-each: CMD ${{CMD_ARR}}
+        then:
+          - sh: ${{CMD}}  
+
+  checkout-repo:  #Clone the ibrc repo if it does not already exist
+    - sh: rm -Rf ${{WORKING_DIR}}
+    - sh: mkdir -p ${{WORKING_DIR}}
+    - sh: cd ${{WORKING_DIR}}
+    - sh: git clone ${{GH_REPO_URL}}
+
+  prepare-measurements-file:
+    - log: 1BRC - Preparing measurements file
+    - sh: cd ${{WORKING_DIR}}/1brc
+    - script: configure-jdk 
+      with: 
+        jdk: 21.0.1-graalce
+    - sh: which java
+    - sh: java --version
+    - sh: ./mvnw clean verify
+    - sh: ./create_measurements.sh 1000000000 
+
+  run-tests:
+    - log: 1BRC - running tests
+    - log: 1BFC - calculating baseline
+    - sh: mkdir -p ${{WORKING_DIR}}/output
+    - sh: cd ${{WORKING_DIR}}/1brc
+      #Store the git commit for the current run in the result json
+    - sh: git rev-parse HEAD
+    - set-state: RUN.results.env.git-commit   
+      #Store uname for the current run in the result json
+    - sh: uname -a
+    - set-state: RUN.results.env.uname   
+      #Store the OSTYPE for the current run in the result json
+    - sh: echo $OSTYPE
+    - set-state: RUN.results.env.ostype   
+    # - sh: ./calculate_average_baseline.sh
+    - for-each: RUNTIME ${{RUNTIMES}}
+      then:
+      - log: Running build commands - ${{RUNTIME.name}}
+      - script: configure-jdk
+        with:
+          jdk: ${{RUNTIME.jdk}}
+      - script: run-cmds
+        with:
+          CMD_ARR:  ${{RUNTIME.build_cmds}}
+        #Copy runtime details into the results json
+      - log: Running implementation - ${{RUNTIME.name}}
+      - set-state: RUN.results.submission.${{RUNTIME.name}} ${{RUNTIME}} 
+      - set-state: real []
+      - set-state: user []
+      - set-state: sys []
+        #warmup run
+      # - script: run-cmds
+      #   with:
+      #     CMD_ARR:  ${{RUNTIME.pre_cmds}}
+      # - sh: time ${{RUNTIME.timing_cmd}} > ${{WORKING_DIR}}/output/${{RUNTIME.name}}.out 2>&1 
+        #run measurement iterations
+      - for-each: ITERATION ${{= [...Array(${{RUNS}}).keys()] }}
+        then:
+        - log: Running Iteration ${{ITERATION}}
+        - script: run-cmds
+          with:
+            CMD_ARR:  ${{RUNTIME.pre_cmds}}
+        - sh: 
+            command: time ${{RUNTIME.timing_cmd}} > ${{WORKING_DIR}}/output/${{RUNTIME.name}}.out 2>&1
+            ignore-exit-code: true
+          then:
+          - regex: real	(?<minutes>\\d+)m(?<seconds>\\d+).(?<millis>\\d+)s
+            then:
+            - set-state: real ${{=[...${{real}} , ${{= ${{minutes}}*60 + ${{seconds}} + ${{millis}} / 1_000 }}]}}
+          - regex: user	(?<minutes>\\d+)m(?<seconds>\\d+).(?<millis>\\d+)s
+            then:
+            - set-state: user ${{=[...${{user}} , ${{= ${{minutes}}*60 + ${{seconds}} + ${{millis}} / 1_000 }}]}}
+          - regex: sys	(?<minutes>\\d+)m(?<seconds>\\d+).(?<millis>\\d+)s
+            then:
+            - set-state: sys ${{=[...${{sys}} , ${{= ${{minutes}}*60 + ${{seconds}} + ${{millis}} / 1_000 }}]}}
+        - sh: echo $?
+          then:
+          - regex: 0
+            then:
+            - set-state: RUN.results.submission.${{RUNTIME.name}}.result.outcome PASS
+            else:
+            - set-state: RUN.results.submission.${{RUNTIME.name}}.result.outcome FAIL
+        - script: run-cmds
+          with:
+            CMD_ARR:  ${{RUNTIME.post_cmds}}
+      - set-state: RUN.results.submission.${{RUNTIME.name}}.measurements.real ${{real}}
+      - set-state: RUN.results.submission.${{RUNTIME.name}}.measurements.user ${{user}}
+      - set-state: RUN.results.submission.${{RUNTIME.name}}.measurements.sys ${{sys}}
+      - set-state: RUN.results.submission.${{RUNTIME.name}}.result.mean ${{= ${{real}}.reduce((acc, curr) => acc + curr, 0) / ${{real}}.length}}
+      - set-state: RUN.results.submission.${{RUNTIME.name}}.result.max ${{= Math.max(...${{real}}) }}
+      - set-state: RUN.results.submission.${{RUNTIME.name}}.result.min ${{= Math.min(...${{real}}) }}
+    - sh: echo '${{RUN.results}}' > ${{WORKING_DIR}}/results.json
+    - queue-download: ${{WORKING_DIR}}/output
+    - queue-download: ${{WORKING_DIR}}/results.json
+            
+roles:
+  run-scripts:
+    hosts:
+    - target-machine
+    setup-scripts:
+      - provision-env
+      - validate-environment
+      #- checkout-repo
+      #- prepare-measurements-file
+    run-scripts:
+      - run-tests
+
+states:
+  GH_REPO_URL: https://github.com/gunnarmorling/1brc.git
+  DEFULT_BUILD_CMD: mvn clean package -DskipTests -DskipITs
+  RUNS: 5
+  MEASURE_TIMEOUT: 300s
+  MEASURE_CMD_PREPEND: 
+  REQUIRED_CMDS: [sdk, time, git]
+
+  WORKING_DIR: /tmp/1brc
+

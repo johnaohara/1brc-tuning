@@ -1,0 +1,34 @@
+states:
+  RUNTIMES: 
+    - name: abeobk
+      authors: 
+        - name: Van Phu DO
+          url: https://github.com/abeobk
+      github_url: https://github.com/gunnarmorling/1brc/blob/main/src/main/java/dev/morling/onebrc/CalculateAverage_abeobk.java
+      jdk: 21.0.1-graal
+      notes: GraalVM native binary
+      build_cmds:
+        - ${{DEFULT_BUILD_CMD}}
+        - NATIVE_IMAGE_OPTS="--gc=epsilon -O3 -march=native --enable-preview"
+        - native-image $NATIVE_IMAGE_OPTS -cp target/average-1.0.0-SNAPSHOT.jar -o target/CalculateAverage_abeobk_image dev.morling.onebrc.CalculateAverage_abeobk
+      pre_cmds:
+        - JAVA_OPTS="--enable-preview"
+      timing_cmd: ${{MEASURE_CMD_PREPEND}} target/CalculateAverage_abeobk_image     
+      post_cmds:
+        - echo "No post commands, nothing to do"
+    - name: thomaswue
+      authors: 
+        - name: Thomas Wuerthinger
+          url: https://github.com/thomaswue
+      github_url: https://github.com/gunnarmorling/1brc/blob/main/src/main/java/dev/morling/onebrc/CalculateAverage_thomaswue.java
+      jdk: 21.0.1-graal
+      notes: GraalVM native binary
+      build_cmds:
+        - ${{DEFULT_BUILD_CMD}}
+        - NATIVE_IMAGE_OPTS="--gc=epsilon -O3 -march=native --enable-preview"
+        - native-image $NATIVE_IMAGE_OPTS -cp target/average-1.0.0-SNAPSHOT.jar -o target/CalculateAverage_thomaswue_image dev.morling.onebrc.CalculateAverage_thomaswue
+      pre_cmds:
+        - JAVA_OPTS="--enable-preview"
+      timing_cmd: ${{MEASURE_CMD_PREPEND}} target/CalculateAverage_thomaswue_image      
+      post_cmds:
+        - echo "No post commands, nothing to do"
